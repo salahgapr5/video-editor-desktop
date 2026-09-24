@@ -270,13 +270,15 @@ document.getElementById('loadBtn').onclick = async ()=>{
   // --- Fast path: ffmpeg scene-cut detection, run in the main process on the
   // real file (no frame-by-frame seeking in the renderer). Falls back to the
   // original in-page JS scanner below if ffmpeg is unavailable or errors. ---
+  let ffmpegInfo='';
   if(window.vem){
     loadNote.innerHTML='<span class="spinner"></span> Scanning for cuts (ffmpeg)...';
     try{
       const res = await window.vem.detectScenes(brollPath, sensitivity);
       if(res.ok){
-        boundaries=[0, ...res.data.filter(t=>t>0.05 && t<dur-0.05), dur];
+        boundaries=[0, ...res.data.times.filter(t=>t>0.05 && t<dur-0.05), dur];
         scanMethod='ffmpeg';
+        ffmpegInfo = `threshold ${res.data.threshold.toFixed(3)}, raw hits ${res.data.rawCount} \u2192 merged ${res.data.times.length}`;
       } else {
         console.warn('ffmpeg scene detection failed, falling back to JS scan:', res.error);
       }
@@ -379,7 +381,7 @@ document.getElementById('loadBtn').onclick = async ()=>{
   const rateNote = Math.abs(BROLL_RATE-1)<0.005 ? 'B-roll and avatar are already the same length.' :
     `B-roll (${fmt(dur)}) will be played at ${BROLL_RATE.toFixed(3)}x to exactly match the avatar length (${fmt(avatarVid.duration)}).`;
   loadNote.textContent = `${segments.length} clips detected by scene cut (${fmt(dur)} total), trimmed ${trimAmt}s off each start/end. ${rateNote} Too many/few cuts? Adjust sensitivity and reload.`;
-  loadNote.textContent += ` [scan: ${scanMethod==='ffmpeg'?'ffmpeg':'JS, '+L.length+' lane(s)'}, ${((performance.now()-scanT0)/1000).toFixed(0)}s]`;
+  loadNote.textContent += ` [scan: ${scanMethod==='ffmpeg'?('ffmpeg, '+ffmpegInfo):('JS, '+L.length+' lane(s)')}, ${((performance.now()-scanT0)/1000).toFixed(0)}s]`;
   filmstripPanel.style.display='block';
   renderFilmstrip();
 };

@@ -63,11 +63,22 @@ async function detectScenes(filePath, sensitivity) {
   // ffmpeg writes progress/filter logs to stderr even on success, and `run()`
   // only rejects on non-zero exit, so this is safe to read from stderr here.
   const { stderr } = await run(ffmpegPath(), args);
-  const times = [];
+  const raw = [];
   const re = /pts_time:([\d.]+)/g;
   let m;
-  while ((m = re.exec(stderr))) times.push(parseFloat(m[1]));
-  return times; // cut boundary timestamps in seconds, excluding 0 and duration
+  while ((m = re.exec(stderr))) raw.push(parseFloat(m[1]));
+
+  // A single real cut can make several consecutive frames cross the
+  // threshold at once (motion blur, dissolves, etc.), which used to produce
+  // a cluster of near-duplicate boundaries a few frames apart instead of a
+  // single one. Collapse anything closer than minGap seconds into one
+  // boundary, same as the JS fallback scanner below already does.
+  const minGap = 0.25;
+  const times = [];
+  for (const t of raw) {
+    if (!times.length || t - times[times.length - 1] >= minGap) times.push(t);
+  }
+  return { times, rawCount: raw.length, threshold }; // cut boundary timestamps in seconds, excluding 0 and duration
 }
 
 // ---- lightweight preview proxy (720p H.264) -------------------------------
