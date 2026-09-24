@@ -20,7 +20,7 @@ required to use it. Target: Apple Silicon (M4), later a universal build.
    Cut detection is still the old frame-seeking JS scan (slow, but unchanged).
 2. **Step 2 — ffmpeg integration.** Bundle a macOS ffmpeg binary. Add:
    - `ffprobe`-based media info instead of guessing from `<video>` metadata.
-   - One-pass ffmpeg scene-score scan to replace the slow JS cut-detection scan.
+   - One-pass ffmpeg scan to replace the slow JS cut-detection scan (rewritten in v0.4.1, see "Cut detection rewrite").
    - Lightweight preview proxies (720p H.264) for any clip Chromium can't play
      natively, so the in-app preview stays smooth regardless of source codec.
    - Native open/save dialogs via Electron's `dialog` module (replacing the
@@ -36,6 +36,33 @@ required to use it. Target: Apple Silicon (M4), later a universal build.
    bundled ffmpeg, CI sanity checks, final `.dmg`.
 
 ## STATUS: Steps 1, 2, 3A and 3B are DONE (code-complete). Next: user builds the .dmg and tests on the Mac.
+
+## Cut detection rewrite (v0.4.1) — replaces the old ffmpeg `scene` threshold
+Problem seen on real footage: one continuous shot (motion/flicker) was chopped into ~25 half-second
+clips at the default slider, and raising the slider lost real cuts (and crossfades were never found).
+A per-frame "how big is the jump" threshold can't fix both at once.
+
+New method (`src/scene-detect.js`, frames come from `src/thumb-extract.js`):
+- ONE ffmpeg pass decodes every frame to a 32x18 RGB thumbnail (+ exact pts from showinfo).
+- Hard cut = spike that stands out from the LOCAL motion level AND the picture 3 frames before vs 3 after
+  is really different (low quantile, so 1-2 frame flashes/pops don't count) AND that difference is clearly
+  bigger than the jitter inside each side. Different pictures, not just big jumps.
+- Crossfade/dissolve = colour+layout of the picture 0.5 s before vs 0.5 s after differs, with a stable
+  shot on both sides and clearly above the surrounding change level. Reported at the centre.
+- Dip to black / white flash = near-black/white run between two different pictures -> one cut at its centre.
+- Min shot length 0.2 s enforced by strongest-wins non-max suppression (no chain merging), then adjacent
+  segments that still look like the same shot are merged.
+- Boundary time = midpoint between last old frame and first new frame, so no repeated frame at clip starts.
+- Slider unchanged (5-150, lower = more cuts) but now it only removes WEAK cuts; obvious cuts survive at 150.
+- The editor status line shows "N cuts (H hard, F fades)" and the devtools console prints a table of every
+  cut with kind + score (View > Toggle Developer Tools) — send that table if a cut is ever wrong.
+- Old `scene`-score approach is gone from detectScenes; the in-page JS scanner is still the fallback if
+  ffmpeg fails.
+
+Tested only on synthetic footage generated with ffmpeg (hard cuts, jittery single shot with pops, similar
+shots, crossfades, 24->30 fps duplicate frames, 0.6 s rapid cuts, dip-to-black, slow-zoom stills):
+default slider = every cut found, 0 false cuts; old method: 25-42 false cuts in the single shot at low
+slider, only 3/7 real cuts at slider 100. NOT yet tested on the user's real footage.
 
 ## What Step 3B added (on top of 3A; everything else in this zip is the 3A code)
 - `build/icon.png` (1024px, generated; replace with your own art any time, same path).
